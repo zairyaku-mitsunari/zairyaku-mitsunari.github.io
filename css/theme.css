@@ -1,0 +1,128 @@
+/* 財略三成の正式デザイン（翡翠・水色・黄金）。基準は Assets/Design/jade_reference.png。
+   背景・金の枠・ボタン・入力欄・文字・パネル・見出しは、すべてここの共通部品で決める。新しい画面もこれを使う。 */
+:root {
+  --gold:#efca6c; --gold-light:#ffe9a2; --gold-deep:#7a5413;
+  --aqua:#bdeff2; --silver:#f6fcfc; --text:#ffffff;
+  --income:#92ffd8; --expense:#ffb6bb; --net:#ffe77a;
+  --surface:#063844;      /* パネルの地（グラフの下地） */
+  --surface-deep:#042a35;
+  --field:#0d6371;        /* 選ぶ部分・ボタンの地 */
+  --input:#03303c;
+  --line:rgba(239,202,108,.38);
+  --serif:"Hiragino Mincho ProN","YuMincho",serif;
+  --gold-fill:linear-gradient(#fffbe3,#ffe493 42%,#e6b03e 76%,#f8da80);
+  --panel-fill:linear-gradient(160deg,#0a4955,#063844 52%,#042b36);
+  --frame-shadow:0 0 0 1px var(--gold-deep), inset 0 0 0 3px rgba(2,28,36,.78), inset 0 0 0 4px rgba(255,228,150,.5), 0 6px 16px rgba(0,26,34,.38);
+}
+html { background:#07505c; }
+body { color:var(--text); }
+
+/* 地：翡翠の空に雲、下に金の青海波（本文の後ろに固定） */
+body::before { content:""; position:fixed; inset:0; z-index:-2; background:url(../theme/clouds.svg) repeat, linear-gradient(#0f6f79,#0a5f6b 38%,#07505e 70%,#064450); }
+body::after { content:""; position:fixed; left:0; right:0; bottom:0; height:56px; z-index:-1; background:url(../theme/waves.svg) repeat-x left bottom / 98px 56px; opacity:.75; }
+
+h1, h2, h3 { text-shadow:0 1px 3px rgba(0,20,26,.65); }
+.note { color:var(--aqua); }
+
+/* パネル：金の二重枠と隅の飾り */
+.panel, .summary { border:1.5px solid var(--gold); border-radius:16px; background:var(--panel-fill); box-shadow:var(--frame-shadow); }
+.panel { position:relative; padding:14px; }
+.panel::before, .panel::after { content:""; position:absolute; width:15px; height:15px; border:solid var(--gold-light); pointer-events:none; }
+.panel::before { top:6px; left:6px; border-width:2px 0 0 2px; border-radius:7px 0 0 0; }
+.panel::after { bottom:6px; right:6px; border-width:0 2px 2px 0; border-radius:0 0 7px 0; }
+.panel > h2, .panel-head { background:linear-gradient(90deg,var(--gold),rgba(239,202,108,0)) left bottom / 100% 1.5px no-repeat; padding-bottom:5px; }
+.panel-head h2 { margin-bottom:0; }
+
+/* ボタン */
+button.gold { background:var(--gold-fill); color:#2b1a00; border:1px solid #fff3c4; border-radius:999px; padding:0 20px; min-height:44px; font-weight:700; box-shadow:0 0 0 1px var(--gold-deep), 0 3px 8px rgba(0,22,28,.35); text-shadow:0 1px 0 rgba(255,255,255,.45); }
+button.outline, button.danger, button.select { background:linear-gradient(#11707e,#0a525f); border:1.2px solid var(--gold); border-radius:12px; padding:0 14px; min-height:44px; font-weight:600; box-shadow:inset 0 1px 0 rgba(255,255,255,.14), 0 2px 5px rgba(0,22,28,.25); }
+button.select { background:var(--input); }
+.tabs button.gold, .tabs button.outline { padding:0 3px; white-space:nowrap; border-radius:12px; }
+button.danger { background:linear-gradient(#7c2c3a,#561a26); color:#ffe6e8; }
+button.gold:active, button.outline:active, button.danger:active { filter:brightness(1.12); }
+
+/* 入力欄 */
+input, select { background:var(--input); border:1px solid rgba(239,202,108,.55); border-radius:10px; min-height:44px; padding:0 10px; max-width:100%; font-size:16px; color-scheme:dark; box-shadow:inset 0 2px 6px rgba(0,14,20,.45); }
+textarea { background:var(--input); color:inherit; border:1px solid rgba(239,202,108,.55); border-radius:10px; box-shadow:inset 0 2px 6px rgba(0,14,20,.45); }
+select.scope { background:transparent; border:0; box-shadow:none; }
+input[type=checkbox] { accent-color:#e9b94a; box-shadow:none; }
+
+/* 画面の見出し */
+.screen-head { position:relative; width:100%; max-width:520px; margin:0 auto; aspect-ratio:13 / 5; flex:0 0 auto; container-type:inline-size; overflow:hidden; border:1.5px solid var(--gold); border-radius:18px; box-shadow:0 0 0 1px var(--gold-deep), 0 6px 16px rgba(0,26,34,.4); }
+.screen-head .head-art { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.screen-head h1 { position:absolute; left:10%; right:10%; top:19%; height:34%; margin:0; display:flex; justify-content:center; align-items:center; }
+.screen-head h1 img { max-width:100%; max-height:100%; width:auto; height:100%; object-fit:contain; }
+.screen-head p { position:absolute; left:9%; right:20%; margin-left:5.5%; top:60%; margin-top:0; margin-bottom:0; text-align:center; font:700 clamp(11px,3.6cqw,18px) var(--serif); color:#fff; text-shadow:0 0 4px #021c24, 0 1px 3px #021c24; }
+
+/* 題字を大きく見せる画面（資産管理の各画面と三成との相談）：題字の場所を広くとる */
+.screen-head[data-strong] h1 { left:2%; right:2%; top:15%; height:41%; }
+.screen-head[data-strong] h1 img { filter:drop-shadow(0 2px 3px rgba(0,16,22,.55)); }
+.screen-head[data-strong] p { top:63%; font-size:clamp(12px,3.8cqw,19px); }
+
+/* 下部メニュー */
+.bottombar { border:1.8px solid var(--gold); border-radius:20px; background:linear-gradient(#0c6271,#063d4b 55%,#04303c); box-shadow:0 0 0 1px var(--gold-deep), inset 0 0 0 3px rgba(2,28,36,.6), inset 0 0 0 4px rgba(255,228,150,.35), 0 4px 14px rgba(0,20,28,.45); }
+.bottombar button.active { color:#ffe46a; text-shadow:0 0 8px rgba(255,214,90,.65); }
+
+/* 区切り線と選択 */
+.entry, .line, .due, .category-line { border-bottom:1px solid var(--line); }
+.chip { background:linear-gradient(#11707e,#0a525f); border:1px solid rgba(239,202,108,.45); border-radius:10px; }
+.chip.selected { border:2px solid var(--gold-light); }
+.chip-button { background:linear-gradient(#11707e,#0a525f); border:1px solid rgba(239,202,108,.7); }
+.chip-button.missing { border:2px solid var(--net); color:var(--net); }
+.track { background:rgba(2,24,32,.55); border-radius:5px; box-shadow:inset 0 0 0 1px rgba(239,202,108,.28); }
+summary { color:var(--gold-light); }
+
+/* 入力画面（下から出る画面） */
+dialog.sheet { color:var(--text); border:1.5px solid var(--gold); border-radius:20px 20px 0 0; background:url(../theme/sakura.svg) right top / 150px no-repeat, url(../theme/clouds.svg) repeat, linear-gradient(#0c6673,#074d5a 26%,#05303c); box-shadow:0 0 0 1px var(--gold-deep), inset 0 0 0 3px rgba(2,28,36,.55), 0 -8px 30px rgba(0,14,20,.5); }
+dialog.sheet::backdrop { background:rgba(1,22,30,.72); }
+dialog.sheet .sheet-title { position:relative; background:linear-gradient(90deg,var(--gold),rgba(239,202,108,0)) left bottom / 100% 1.5px no-repeat; padding-bottom:6px; font-size:20px; }
+dialog.sheet .screen-head { margin-bottom:10px; }
+/* 見出しがある画面の閉じるボタンは、見出しの右上に重ねる */
+.toast { border:1.5px solid var(--gold); border-radius:14px; background:var(--panel-fill); box-shadow:0 4px 14px rgba(0,20,28,.45); }
+
+/* ホーム：ほかの画面より少し明るい翡翠色（人物の絵には色を重ねない） */
+main.route-home { background:linear-gradient(180deg,rgba(66,214,196,.30),rgba(66,214,196,.22) 60%,rgba(66,214,196,.10)); min-height:100vh; }
+.home .summary { background:linear-gradient(160deg,#0b5967,#094d5c 55%,#074250); }
+.home .wealth { background:rgba(3,44,56,.42); }
+.home .menu { background:linear-gradient(90deg,#14919a,#0e6b80 24%,#0d6580 62%,#15969c); }
+.home .menu::before { background:linear-gradient(90deg,rgba(28,184,174,.46),rgba(28,184,174,.40) 55%,rgba(28,184,174,0)); }
+.hero { border-radius:0 0 18px 18px; overflow:hidden; border-bottom:2px solid var(--gold); box-shadow:0 6px 16px rgba(0,26,34,.35); }
+.home { padding-bottom:2px; }
+.home-side { padding-top:8px; }
+.summary { border-width:2px; border-radius:18px; }
+.wealth { background:rgba(2,30,40,.55); }
+/* ホームのメニュー：絵は変えず、左側と中央の地だけを翡翠寄りに明るくする（右側の絵と人物には色を重ねない） */
+.menu { border:2px solid var(--gold); border-radius:16px; background:linear-gradient(90deg,#0c6672,#0a4d61 24%,#094a60 62%,#0c6a76); box-shadow:0 0 0 1px var(--gold-deep), inset 0 0 0 1px rgba(255,232,160,.3), 0 4px 10px rgba(0,22,30,.38); isolation:isolate; }
+.menu::before { content:""; position:absolute; inset:0 30% 0 0; z-index:1; pointer-events:none; mix-blend-mode:screen; background:linear-gradient(90deg,rgba(18,150,148,.42),rgba(18,150,148,.34) 55%,rgba(18,150,148,0)); }
+.menu .art-title, .menu .menu-sub, .menu .chevron { z-index:2; }
+
+/* 相談・分析・予定の色 */
+.question { background:linear-gradient(#e2fbfb,#a9e6ea); color:#04303a; border:1px solid var(--gold); }
+.pdf-text, .recovery { background:var(--input); }
+/* グラフは濃い地の上に描く（色の見分けやすさを検査した組み合わせを保つ） */
+.chart { background:var(--surface-deep); border:1px solid var(--line); border-radius:12px; padding:8px; }
+.chart .grid { stroke:#1b5663; } .chart .axis { stroke:#5d929c; } .chart .cursor { stroke:#a9dbe0; }
+.chart .tick { fill:#b4dde2; } .chart .dot { stroke:var(--surface-deep); } .chart .slice { stroke:var(--surface-deep); } .chart .center-label { fill:#b4dde2; }
+.calendar .cell { background:rgba(13,99,113,.5); } .calendar .cell.empty { background:none; }
+.calendar .today { border-color:var(--aqua); } .calendar .selected { border:2px solid var(--gold-light); background:#0f6d7e; }
+.calendar .saturday b { color:#aee0ff; }
+/* ロック画面：画面全体を明るい翡翠にし、中身は濃い地の上に置いて読みやすくする */
+dialog.lock::backdrop { background:#14848c; }
+dialog.sheet.lock { width:100vw; max-width:100vw; height:100dvh; max-height:100dvh; margin:0; border:0; border-radius:0; box-shadow:none;
+  padding:calc(28px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom));
+  background:url(../theme/sakura.svg) right top / 190px no-repeat, url(../theme/waves.svg) repeat-x left bottom / 112px 64px, url(../theme/clouds.svg) repeat, linear-gradient(#35b3b0,#1c949b 34%,#117a88 70%,#0d6575); }
+dialog.sheet.lock > * { max-width:520px; margin-left:auto; margin-right:auto; }
+.lock-hero { display:block; width:100%; border:2px solid var(--gold); border-radius:18px; box-shadow:0 0 0 1px var(--gold-deep), 0 8px 22px rgba(0,30,40,.4); }
+dialog.sheet.lock .sheet-title { margin-top:18px; margin-bottom:12px; text-align:center; font-size:30px; color:#fff6c9; background-position:center bottom; letter-spacing:2px;
+  text-shadow:0 0 2px #2b1802, 0 2px 3px #2b1802, 0 0 10px rgba(0,30,40,.7); }
+dialog.sheet.lock form { background:var(--panel-fill); border:1.5px solid var(--gold); border-radius:16px; box-shadow:var(--frame-shadow); padding:16px; }
+dialog.sheet.lock form input { width:100%; text-align:center; font-size:22px; }
+dialog.sheet.lock > .note { margin-top:14px; padding:10px 12px; border-radius:12px; background:rgba(3,48,60,.72); color:#fff; }
+@media (min-width:960px) {
+  .bottombar { border-width:0 1.5px 0 0; border-radius:0; box-shadow:4px 0 18px rgba(0,20,28,.4); }
+  .bottombar.bottombar button.active { background:linear-gradient(#11707e,#0a525f); box-shadow:inset 0 0 0 1.2px var(--gold); }
+  body::after { left:200px; }
+  .hero { border:1.5px solid var(--gold); border-radius:16px; }
+  dialog.sheet { border-radius:20px; }
+}
+@media print { body::before, body::after, .screen-head { display:none !important; } }
