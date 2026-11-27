@@ -182,6 +182,7 @@ export class Store {
       this.validate(data, draft, old);
       const record = compact({ ...old, ...this.fields(draft), updatedAt: this.now() });
       data.transactions[index] = record;
+      this.learnFromEdit(data, old, record);
       for (const other of data.transactions) { // 返金は元の支出の項目と区分に合わせる
         if (other.refundOfID === id && (other.categoryID !== record.categoryID || other.scope !== record.scope)) {
           Object.assign(other, { categoryID: record.categoryID, scope: record.scope, updatedAt: record.updatedAt });
@@ -300,6 +301,17 @@ export class Store {
       lines: (receipt.lines ?? []).map((l) => compact({ name: redact(l.name), quantity: l.quantity, amount: l.amount, categoryID: l.categoryID })),
       files: names, fingerprints: receipt.fingerprints ?? [], createdAt: time, updatedAt: time,
     });
+  }
+
+  /** レシートから登録した支出の項目を後で直したら、その商品の分類も覚える（どの商品か1つに決まるときだけ） */
+  learnFromEdit(data, old, record) {
+    if (!record.receiptID || record.kind !== 'expense' || old.categoryID === record.categoryID) return;
+    const receipt = live(data.receipts).find((r) => r.id === record.receiptID && r.kind === 'receipt');
+    const lines = (receipt?.lines ?? []).filter((l) => l.categoryID === old.categoryID);
+    if (lines.length !== 1 || ['差額', receipt.storeName].includes(lines[0].name)) return;
+    lines[0].categoryID = record.categoryID;
+    receipt.updatedAt = record.updatedAt;
+    this.learn(data, [{ name: lines[0].name, categoryID: record.categoryID }], record.updatedAt);
   }
 
   learn(data, corrections, time) {

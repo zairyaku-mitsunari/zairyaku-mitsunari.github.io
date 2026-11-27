@@ -253,13 +253,13 @@ function receiptReview(app, job, next, redraw) {
     job.state = {
       storeName: parsed.storeName ?? '', day: parsed.day ?? '', total: parsed.total != null ? String(parsed.total) : '',
       discount: parsed.discount ? String(parsed.discount) : '', tax: parsed.addedTax ? String(parsed.addedTax) : '',
-      source: suggestedSource(app, parsed.payment), anyway: false,
+      source: suggestedSource(app, parsed.payment), anyway: false, checked: false,
       lines: items.map((item) => {
         const read = parsed.items.length ? item.name : null; // 内訳がないときは、名前を覚えない
         const { name, from } = read == null ? { name: item.name, from: null } : learnedName(job.names ?? [], store.data, read);
-        const s = classifier.suggest(name, parsed.storeName, { fuzzy: !job.text }); // 画像の読み取りは読み違いを考慮
+        const s = classifier.suggest(name, parsed.storeName, { fuzzy: !job.text, restaurant: parsed.venue === 'restaurant' }); // 画像の読み取りは読み違いを考慮
         return { name, read, renamed: from, doubtful: (result.doubtful ?? []).includes(item.name), quantity: item.quantity ?? null, unitPrice: item.unitPrice ?? null,
-          amount: String(item.amount), discount: item.discount, categoryID: s.categoryID, suggested: s.categoryID, source: s.source };
+          amount: String(item.amount), discount: item.discount, categoryID: s.categoryID, suggested: s.categoryID, source: s.source, candidate: s.candidate ?? null };
       }),
     };
   }
@@ -267,6 +267,7 @@ function receiptReview(app, job, next, redraw) {
   const list = h('div', { className: 'lines' });
   const duplicates = h('div');
   const summary = h('div');
+  const verification = h('div', { id: 'total-checks' });
   const problems = h('div');
   const failure = h('p', { className: 'error', role: 'alert' });
   const register = button('確認して一括登録', submit, 'gold wide', { id: 'register' });
@@ -291,6 +292,7 @@ function receiptReview(app, job, next, redraw) {
         button(line.categoryID ? L.categoryName(store.data, line.categoryID) : '項目を選ぶ・作る', () => categoryPicker(app, 'expense', line.categoryID, (id) => { line.categoryID = id; drawLines(); update(); }, line.name),
           `chip-button ${line.categoryID ? '' : 'missing'}`, { 'data-line': String(i) }),
         h('small', {}, line.categoryID ? (line.categoryID === line.suggested ? sourceTitle[line.source] : '修正済み') : '要確認'),
+        !line.categoryID && line.candidate ? button(`候補：${L.categoryName(store.data, line.candidate)} にする`, () => { line.categoryID = line.candidate; drawLines(); update(); }, 'link', { 'data-candidate': String(i) }) : null,
         line.quantity > 1 || line.unitPrice ? h('small', {}, `${line.quantity ?? '?'}点${line.unitPrice ? ` × 単価 ${yen(line.unitPrice)}` : ''}`) : null,
         line.discount ? h('small', {}, `値引 ${yen(line.discount)}`) : null),
       line.quantity && line.unitPrice && value(line.amount) != null && line.quantity * line.unitPrice !== value(line.amount)
@@ -315,7 +317,7 @@ function receiptReview(app, job, next, redraw) {
         const attached = store.data.transactions.some((t) => s.entryIDs.includes(t.id) && t.receiptID);
         return h('div', { className: 'row' }, h('span', {}, `${s.day}　${yen(s.amount)}　${s.storeName}`),
           attached ? h('small', {}, 'レシート添付済み') : button('この記録にレシートを付ける', async () => {
-            try { await store.attachDocument(record(), s.entryIDs, result.files); next(true); } catch (error) { failure.textContent = error.message; }
+            try { await store.attachDocument(record(), s.entryIDs, result.files); await rememberNames(); next(true); } catch (error) { failure.textContent = error.message; }
           }, 'outline'));
       }),
       h('label', { className: 'check' }, h('input', { type: 'checkbox', checked: state.anyway, id: 'register-anyway', onchange: (e) => { state.anyway = e.target.checked; update(); } }), '別の支払いなので、新しく登録する'))] : []));
@@ -330,6 +332,17 @@ function receiptReview(app, job, next, redraw) {
             drawLines(); update();
           }, 'outline', { id: 'add-difference' })));
 
+    // お預り・お釣り・支払額・小計・消費税との照合
+    const checks = R.totalChecks(parsed, total);
+    const mismatch = checks.some((c) => !c.ok);
+    const cash = R.cashPaid(parsed);
+    verification.replaceChildren(...[
+      parsed.totalSource === 'verified' && total === parsed.total ? note('合計の行を読めないか商品と合わないため、お預り−お釣り（または支払額）と商品の合計が一致する金額を入れています。原本と見比べてください。', 'note warn') : null,
+      ...checks.map((c) => note(c.text, c.ok ? 'done' : 'note warn')),
+      cash != null && !(total > 0) ? button(`お預り−お釣り（${yen(cash)}）を合計にする`, () => { state.total = String(cash); totalInput.value = state.total; update(); }, 'outline', { id: 'use-cash-total' }) : null,
+      mismatch ? h('label', { className: 'check' }, h('input', { type: 'checkbox', id: 'total-confirmed', checked: state.checked === total, onchange: (e) => { state.checked = e.target.checked ? total : false; update(); } }), '原本を見て、支払った合計が正しいことを確かめた') : null,
+    ].filter(Boolean));
+
     const list_ = [];
     if (!isDay(state.day)) list_.push('購入日を指定してください。');
     if (!(total > 0)) list_.push('支払った合計額を入力してください。');
@@ -338,11 +351,18 @@ function receiptReview(app, job, next, redraw) {
     if (state.lines.some((l) => !(value(l.amount) > 0))) list_.push('金額が未入力の商品があります。');
     if (amounts.some((a) => a < 0)) list_.push('値引きが商品の金額を超えています。');
     if (difference) list_.push(`合計と振り分けの合計が ${signed(difference)} ずれています。`);
+    if (mismatch && state.checked !== total) list_.push('お預り・お釣りなどと合計が合いません。原本を確かめてください。');
     if ((same || similar.length) && !state.anyway) list_.push('重複の確認をしてください。');
     problems.replaceChildren(...list_.map((p) => note(p, 'note warn')));
     register.disabled = list_.length > 0;
     failure.textContent = '';
     covered.update();
+  }
+
+  /** 直した商品名を覚える。補助の機能なので、保存できなくても登録は成功のまま */
+  async function rememberNames() {
+    const pairs = state.lines.filter((l) => l.read != null && R.redact(l.read) === l.read).map((l) => ({ read: l.read, name: R.redact(l.name) }));
+    if (pairs.length) await store.persistence.setLocal(NAMES, remember(await learnedNames(app), pairs)).catch(() => {});
   }
 
   async function submit() {
@@ -362,9 +382,7 @@ function receiptReview(app, job, next, redraw) {
     const corrections = parsed.items.length ? state.lines.filter((l) => l.categoryID !== l.suggested && l.name !== '差額').map((l) => ({ name: l.name, categoryID: l.categoryID })) : [];
     try {
       await store.registerDocument(record(), drafts, { files: result.files, corrections, alongside: covered.checked() ? offset : undefined });
-      const pairs = state.lines.filter((l) => l.read != null && R.redact(l.read) === l.read).map((l) => ({ read: l.read, name: R.redact(l.name) }));
-      // 名前の覚え書きは補助なので、保存できなくても登録は成功のまま
-      if (pairs.length) await store.persistence.setLocal(NAMES, remember(await learnedNames(app), pairs)).catch(() => {});
+      await rememberNames();
       app.month = monthContaining(state.day, store.data);
       next(true);
     } catch (error) { failure.textContent = error.message; register.disabled = false; }
@@ -372,7 +390,7 @@ function receiptReview(app, job, next, redraw) {
 
   const field = (label, control) => h('label', { className: 'field' }, h('span', {}, label), control);
   const day = h('input', { type: 'date', value: state.day, 'aria-label': '購入日', oninput: () => { state.day = day.value; update(); } });
-  const total = textInput('支払った合計', state.total, (v) => { state.total = v; update(); }, { inputMode: 'numeric' });
+  const totalInput = textInput('支払った合計', state.total, (v) => { state.total = v; update(); }, { inputMode: 'numeric' });
   const discount = textInput('全体の値引き', state.discount, (v) => { state.discount = v; update(); }, { inputMode: 'numeric' });
   const tax = textInput('上乗せされる消費税', state.tax, (v) => { state.tax = v; update(); }, { inputMode: 'numeric' });
   drawLines();
@@ -386,7 +404,7 @@ function receiptReview(app, job, next, redraw) {
     duplicates,
     panel('商品と支出項目', parsed.items.length ? null : note('商品の内訳は読み取れないため、合計だけを1行にしています。内訳は作りません。'), list,
       button('行を追加', () => { state.lines.push({ name: '', quantity: null, amount: '', discount: 0, categoryID: null, suggested: null, source: 'unknown' }); drawLines(); update(); }, 'outline')),
-    panel('金額の照合', field('支払った合計', total), field('全体の値引き', discount), field('上乗せされる消費税（外税）', tax), summary, problems, covered.element, failure, register)));
+    panel('金額の照合', field('支払った合計', totalInput), field('全体の値引き', discount), field('上乗せされる消費税（外税）', tax), summary, verification, problems, covered.element, failure, register)));
 }
 
 function statementReview(app, result, next) {

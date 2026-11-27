@@ -5,7 +5,7 @@
 import { recognize as precise } from './ocr-paddle.js';
 import { prepareForOCR } from './image.js';
 import { layoutLines, cleanOCRLine, parseDocument } from './core/receipt.js';
-import { quality, combine, matches } from './core/combine.js';
+import { quality, combine, matches, consistent } from './core/combine.js';
 import { analyses, settle, doubtful } from './core/precise.js';
 
 /** 高精度の方式の読み方。2回目は文字の枠を広めに、3回目は紙を切り抜かず小さめに読む。 */
@@ -15,7 +15,7 @@ export const PRECISE_PASSES = [{ side: 1280 }, { side: 1280, thresholds: { thres
 export function settled(parsed, times) {
   if (parsed.kind === 'statement') return parsed.rows.length >= 3;
   if (parsed.total != null && parsed.day && !parsed.items.length) return parsed.kind === 'bill' || times >= 2;
-  return !!(matches(parsed) && parsed.day);
+  return !!(matches(parsed) && parsed.day && consistent(parsed));
 }
 
 export async function scanPrecise(canvas, today, onProgress = () => {}, passes = PRECISE_PASSES) {

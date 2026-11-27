@@ -2,6 +2,7 @@
 // 読み取れない値は null のままにする（推測で埋めない）。
 import { isDay, makeDay, daysBetween } from './date.js';
 import { live } from './ledger.js';
+import { yen } from './money.js';
 
 /** 認識した単語を、高さが重なるものどうし1行にまとめて左から並べる */
 export function layoutLines(fragments) {
@@ -103,10 +104,22 @@ export function findDay(line, today) {
   return null;
 }
 
-const TOTAL = ['現計', 'お買上計', 'お買上げ計', 'お買い上げ計', '税込計', '合計', 'ご請求額', 'ご請求金額', '請求金額', 'お支払金額', 'お支払い金額', '支払金額', '領収金額', 'お会計', '注文合計', '支払い合計', 'ご利用金額合計', '今回請求'];
+const TOTAL = ['現計', 'お買上計', 'お買上げ計', 'お買い上げ計', '税込計', '合計', 'ご請求額', 'ご請求金額', '請求金額', 'お支払金額', 'お支払い金額', '支払金額', '領収金額', 'お会計', '注文合計', '支払い合計', 'ご利用金額合計', '今回請求',
+  'お支払額', 'お支払い額', 'お買上金額', 'お買上げ金額', 'お買い上げ金額', 'ご利用金額', 'ご利用額'];
+/** 税込みの合計の書き方（「合計(税込)」「税込合計」など）。税額の行（「内税合計」「合計内税額」）は含めない */
+const TAXED_TOTAL = /^(総?合計(金額)?|お会計|お買い?上げ?計|現計)[([]?(税込|内税)(?![額等])|税込み?(合計|計|金額|総額|お支払)|(合計|総額)[([]税込/;
+/** 税を足した後の小計（「小計＋税」「税込小計」など）。税抜きの小計は含めない */
+const TAXED_SUBTOTAL = /小計[+十&・]?(消費)?税(?![抜別額率]|対象)|税込み?小計|小計[([]税込/;
+/** 受け取ったお金・お釣り・現金以外の支払いの行 */
+const TENDER = /^.{0,2}?(お?預(り|かり)|お預け)|^現金(支払い?|払い?|預り?)?[:：]?[¥\d]/;
+const CHANGE = /^.{0,2}?(お釣|おつり|釣銭|つり銭)|^釣り?[:：]?[¥\d]/; // 「釣り糸」などの商品は含めない
+const VOUCHER = /商品券|ギフトカード|ギフト券|金券|お食事券/;
 const SKIP = ['お釣', '釣銭', 'つり銭', 'お預', '預り', '預かり', 'ポイント残', '獲得', '付与', '点数', '対象', 'TEL', '電話', '登録番号', '担当', '責任者', '会員番号', '承認番号', '伝票', '残高', 'No.', '番号'];
 // 電話番号・会員番号など、金額ではない案内の行。値引きにも、合計より後の行の始まりにもしない。
-const INFO = ['TEL', '電話', '登録番号', '承認番号', '伝票', '会員番号', '会員No', 'カード番号', 'No.', '担当', '責任者', 'テーブル', '人数', '〒'];
+const INFO = ['TEL', '電話', '登録番号', '承認番号', '伝票', '会員番号', '会員No', 'カード番号', 'No.', '担当', '責任者', '人数', '〒'];
+/** テーブル番号の行（飲食店のレシート）。家具の「テーブル ¥3,980」は商品。「人数」だけでは宿泊や映画もあるので判断しない */
+const SEATED = /^(テーブル|卓)(番号|No\.?)?[:：#]?(\d{1,2}(番|人数|名|$)|\d{3}(番|人数|名))/;
+const isSeating = (line) => !/[¥円]/.test(line) && SEATED.test(line.replace(/ /g, ''));
 /** 金額の行ではないと形で分かるもの：電話番号、登録番号、バーコードの数字、伏せ字のカード番号 */
 const isCode = (line) => /(?<!\d)0\d{1,3}-\d{2,4}-\d{3,4}(?!\d)/.test(line) || /(?<![A-Za-z])T\d{13}(?!\d)/.test(line)
   || /^(?:JAN)?[\d ]{8,}$/i.test(line) || /^JAN/i.test(line) || /[*＊●•]{4}/.test(line);
@@ -120,6 +133,20 @@ export function paymentHint(line) {
   if (has(line, ['Suica', 'PASMO', 'ICOCA', '交通系', 'nanaco', 'WAON', 'QUICPay', 'iD支払', '電子マネー', '楽天Edy'])) return 'emoney';
   if (has(line, ['現金', '現計', 'お預り', 'お預かり'])) return 'cash';
   return null;
+}
+
+/** 内・外で始まる言葉で、税の印ではないもの */
+const REAL_WORDS = /^(内服|内科|内祝|内臓|内野|内輪|内もも|内モモ|内ロース|内バラ|外用|外郎|外食|外套|外もも|外モモ)/;
+/** 商品名の前に印字される税の印（内・外・軽）を除く。続きがカタカナ・英数字のときは、1品だけでも印とみなす */
+export const stripTaxMark = (name) => (REAL_WORDS.test(name) ? name : name.replace(/^[内外軽]\*? *(?=[ァ-ヺA-Za-z0-9])/, '').replace(/^非 +/, ''));
+/** 多くの商品が内・外で始まるレシートでは、漢字・ひらがなの名前の前でも印とみなす */
+function removeTaxMarks(items) {
+  const marked = items.filter((i) => /^[内外]/.test(i.name));
+  const common = marked.length >= 2 && marked.length * 3 >= items.length * 2;
+  for (const item of items) {
+    item.name = stripTaxMark(item.name);
+    if (common && !REAL_WORDS.test(item.name) && item.name.length > 2) item.name = item.name.replace(/^[内外]\*? */, '');
+  }
 }
 
 function cleanName(text) {
@@ -146,7 +173,7 @@ function unitPrice(line) {
   return second ? { quantity: Number(second[2]), unit: Number(second[1].replace(/,/g, '')), match: second } : null;
 }
 
-const LABELS = [...TOTAL, '小計', '税', '値引', '割引', 'クーポン', 'お預', 'お釣', '釣銭'];
+const LABELS = [...TOTAL, '小計', '税', '値引', '割引', 'クーポン', 'お預', 'お釣', 'おつり', '釣銭'];
 /** 金額だけの行 */
 function amountOnly(line, today) {
   const found = amounts(line);
@@ -186,7 +213,8 @@ function statementRows(lines, today) {
 
 export function parseDocument(rawLines, today) {
   const lines = rawLines.map(normalize).map((l) => l.trim()).filter(Boolean);
-  const result = { kind: 'receipt', storeName: null, day: null, time: null, items: [], discount: 0, subtotal: null, addedTax: 0, includedTax: 0, total: null, payment: null, rows: [] };
+  const result = { kind: 'receipt', storeName: null, day: null, time: null, items: [], discount: 0, subtotal: null, addedTax: 0, includedTax: 0, total: null, payment: null, rows: [],
+    tendered: null, change: null, payments: [], totalSource: null, venue: null };
 
   const rows = statementRows(lines, today);
   if (rows.length >= 3) {
@@ -207,6 +235,8 @@ export function parseDocument(rawLines, today) {
   joinLabels(lines, today).forEach((line, index) => {
     const found = amounts(line);
     const date = findDay(line, today);
+    const seated = isSeating(date ? line.replace(date.match[0], ' ').replace(/(?<!\d)([01]?\d|2[0-3]):[0-5]\d/, ' ').trim() : line);
+    if (seated) result.venue = 'restaurant';
     if (!result.day && date && !date.assumed) result.day = date.day;
     if (!result.time) result.time = line.match(/(?<!\d)([01]?\d|2[0-3]):[0-5]\d/)?.[0] ?? null;
     const hint = paymentHint(line);
@@ -217,7 +247,7 @@ export function parseDocument(rawLines, today) {
       return;
     }
     if (isCode(line)) return;
-    if (has(line, INFO) && !has(line, TOTAL) || /レジ(?!袋)/.test(line)) { pending = null; return; }
+    if (has(line, INFO) && !has(line, TOTAL) || seated || /レジ(?!袋)/.test(line)) { pending = null; return; }
     const unit = unitPrice(line);
     if (unit && !summary && unit.quantity >= 1) {
       const rest = (line.slice(0, unit.match.index) + ' ' + line.slice(unit.match.index + unit.match[0].length)).replace(/[()]/g, ' ').trim();
@@ -240,11 +270,25 @@ export function parseDocument(rawLines, today) {
     const amount = found.at(-1);
     if (!amount) {
       // 数量と単価だけの行は、直前の商品名を残す
-      if (!summary && !has(line, [...SKIP, ...TOTAL, ...DISCOUNT, '小計', '税', '領収', '支払', 'ポイント']) && line.length >= 2 && !onlyQuantity(cleanName(line))) pending = cleanName(line);
+      if (!summary && !has(line, [...SKIP, ...TOTAL, ...DISCOUNT, '小計', '税', '領収', '支払', 'ポイント', 'おつり']) && line.length >= 2 && !onlyQuantity(cleanName(line))) pending = cleanName(line);
       return;
     }
     const name = cleanName(line.slice(0, found[0].start));
-    if (has(line, ['小計', '商品の小計'])) {
+    const compact = line.replace(/ /g, '');
+    const hinted = paymentHint(line);
+    if (TENDER.test(compact) && !/番号|ポイント/.test(compact)) {
+      // 「お預り ¥2,000 お釣り ¥275」と1行につながることがある
+      const both = found.length > 1 && /お釣|おつり|釣銭|つり銭/.test(compact);
+      result.tendered = Math.abs((both ? found.at(-2) : amount).value);
+      if (both) result.change = Math.abs(amount.value);
+      summary = true;
+    } else if (CHANGE.test(compact)) {
+      result.change = Math.abs(amount.value);
+      summary = true;
+    } else if (!/ポイント/.test(compact) && (TAXED_TOTAL.test(compact) || TAXED_SUBTOTAL.test(compact))) {
+      totals.push({ priority: TAXED_TOTAL.test(compact) ? 2 : 1, value: amount.value });
+      summary = true;
+    } else if (has(line, ['小計', '商品の小計'])) {
       result.subtotal = amount.value;
       summary = true;
     } else if (line.includes('税') && !has(line, ['税込合計', '合計(税込)', '税込計'])) {
@@ -256,10 +300,13 @@ export function parseDocument(rawLines, today) {
     } else if (amount.value < 0 || has(line, DISCOUNT)) {
       if (!summary && result.items.length) result.items.at(-1).discount += Math.abs(amount.value);
       else result.discount += Math.abs(amount.value);
-    } else if (has(line, TOTAL) && !has(line, ['点数'])) {
+    } else if (VOUCHER.test(compact) && summary) {
+      result.payments.push(Math.abs(amount.value));
+    } else if (has(line, TOTAL) && !has(line, ['点数', 'ポイント'])) {
       totals.push({ priority: has(line, ['合計', '請求']) ? 2 : 1, value: amount.value });
       summary = true;
-    } else if (has(line, SKIP) || paymentHint(line) || has(line, ['支払', 'ポイント'])) {
+    } else if (has(line, SKIP) || hinted || has(line, ['支払', 'ポイント'])) {
+      if (hinted && hinted !== 'cash' && !/残高|ポイント|番号/.test(compact) && amount.value > 0) result.payments.push(amount.value);
       summary = true;
     } else if (!summary) {
       let itemName = !name || onlyQuantity(name) ? pending ?? '' : name;
@@ -275,8 +322,19 @@ export function parseDocument(rawLines, today) {
     pending = null;
     waiting = null;
   });
+  removeTaxMarks(result.items);
   const best = Math.max(0, ...totals.map((t) => t.priority));
   result.total = totals.filter((t) => t.priority === best).at(-1)?.value ?? null;
+  if (result.total != null) result.totalSource = 'label';
+  // 合計の行がない・商品と合わないとき：お預り−お釣りやカードの支払額が、商品の合計と一致する場合だけ使う
+  if (result.items.length) {
+    const goods = result.items.reduce((s, i) => s + i.amount - i.discount, 0) - result.discount;
+    const agrees = (v) => v === goods || v === goods + result.addedTax || v === goods + result.includedTax;
+    if (result.total == null || !agrees(result.total)) {
+      const proven = [...new Set([cashPaid(result), ...result.payments].filter((v) => v > 0 && agrees(v)))];
+      if (proven.length === 1 && proven[0] !== result.total) Object.assign(result, { total: proven[0], totalSource: 'verified' });
+    }
+  }
   if (result.total != null) {
     const sum = result.items.reduce((s, i) => s + i.amount - i.discount, 0) - result.discount;
     const base = result.subtotal != null ? result.subtotal - result.discount : sum;
@@ -289,6 +347,38 @@ export function parseDocument(rawLines, today) {
     result.items = [];
   }
   return result;
+}
+
+/** お預り−お釣り（両方読めたときだけ） */
+export const cashPaid = (parsed) => (parsed.tendered != null && parsed.change != null && parsed.tendered > parsed.change ? parsed.tendered - parsed.change : null);
+
+/**
+ * 支払った合計を、お預り・お釣り・カード等の支払額・小計・消費税と照らし合わせる。
+ * 読み取れた値だけを比べる。ok が false のものは、利用者が原本を見て確かめる。
+ */
+export function totalChecks(parsed, total) {
+  const found = [];
+  if (!(total > 0)) return found;
+  const add = (ok, text) => found.push({ ok, text });
+  const others = parsed.payments ?? [];
+  const otherSum = others.reduce((a, b) => a + b, 0);
+  const cash = cashPaid(parsed);
+  if (cash != null) {
+    const ok = cash === total || (others.length > 0 && cash + otherSum === total);
+    add(ok, ok ? `お預り ${yen(parsed.tendered)} − お釣り ${yen(parsed.change)} が合計と合います。`
+      : `お預り ${yen(parsed.tendered)} − お釣り ${yen(parsed.change)} ＝ ${yen(cash)} で、合計 ${yen(total)} と合いません。`);
+  } else if (parsed.tendered != null && !others.length && parsed.tendered < total) add(false, `お預り ${yen(parsed.tendered)} が、合計 ${yen(total)} より少なくなっています。`);
+  if (others.length && cash == null) {
+    if (others.includes(total) || otherSum === total) add(true, 'カード・電子マネー等の支払額が合計と合います。');
+    else if (others.every((v) => v > total)) add(false, `支払額 ${yen(others[0])} が、合計 ${yen(total)} と合いません。`);
+  }
+  if (parsed.subtotal != null) {
+    const discounts = parsed.discount + parsed.items.reduce((s, i) => s + i.discount, 0);
+    const ok = [0, parsed.discount, discounts].some((d) => [0, parsed.addedTax, parsed.includedTax].some((tax) => parsed.subtotal - d + tax === total));
+    add(ok, ok ? '小計と消費税が合計と合います。' : `小計 ${yen(parsed.subtotal)}${parsed.addedTax ? `＋外税 ${yen(parsed.addedTax)}` : ''} が、合計 ${yen(total)} と合いません。`);
+  }
+  if (parsed.includedTax > Math.floor(total / 11) + 2) add(false, `内税 ${yen(parsed.includedTax)} が、合計 ${yen(total)} に対して大きすぎます。`);
+  return found;
 }
 
 /** amount を weights の比で分ける。端数は割り切れなかった分が大きい順に1円ずつ。整数だけで計算する。 */

@@ -1,10 +1,12 @@
 // 利用者が直した商品名を覚え、次の読み取りで使う。覚えた内容はこの端末の中だけに置く（記録の形式は変えない）。
-import { normalize } from './receipt.js';
+import { normalize, stripTaxMark } from './receipt.js';
 import { live } from './ledger.js';
 
 export const LIMIT = 500;
-/** 読み取った名前の比較用の形（空白と大文字小文字の違いは無視。数字は残す） */
-export const readKey = (name) => normalize(name).replace(/\s/g, '').toLowerCase();
+/** 読み取った名前の比較用の形（税の印・空白・大文字小文字の違いは無視。数字は残す） */
+export const readKey = (name) => stripTaxMark(normalize(name).trim()).replace(/\s/g, '').toLowerCase();
+/** 濁点・半濁点の違いを除いた形（文字認識は「ブ」と「プ」を取り違えやすい） */
+const unvoiced = (key) => key.normalize('NFD').replace(/[\u3099\u309a]/g, '');
 
 /**
  * 確認画面の結果を覚える。pairs は [{ read: 読み取った名前, name: 登録した名前 }]。
@@ -43,8 +45,17 @@ function fromHistory(data, key) {
 /** 読み取った名前に使う名前。from は 'learned'（直した名前）・'history'（以前の記録）・null（読み取りのまま） */
 export function apply(table, data, read) {
   const key = readKey(read);
-  const learned = new Map(table).get(key);
+  const entries = new Map(table.map(([from, to]) => [readKey(from), to])); // 以前の版で覚えた形もそろえる
+  const learned = entries.get(key);
   if (learned) return { name: learned, from: 'learned' };
+  // 前に直した名前と、濁点・半濁点だけが違う（5文字以上で、直し先が1つに決まる）
+  if (key.length >= 5) {
+    const close = new Set([...entries].filter(([from, to]) => [from, readKey(to)].some((k) => unvoiced(k) === unvoiced(key))).map(([, to]) => to));
+    if (close.size === 1) {
+      const [name] = close;
+      return readKey(name) === key ? { name: read, from: null } : { name, from: 'learned' };
+    }
+  }
   const past = fromHistory(data, key);
   return past ? { name: past, from: 'history' } : { name: read, from: null };
 }

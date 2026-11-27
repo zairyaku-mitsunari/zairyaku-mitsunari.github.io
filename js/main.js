@@ -24,7 +24,7 @@ import { openImport } from './ui/import.js';
 import { installNote } from './ui/device.js';
 import { importBackup } from './ui/backup.js';
 
-export const VERSION = '0.14.0';
+export const VERSION = '0.15.0';
 const NAV = [['home', 'ホーム'], ['assets', '資産管理'], ['history', '取引履歴'], ['analysis', '分析・軍議'], ['settings', '設定']];
 
 const local = ['localhost', '127.0.0.1'].includes(location.hostname);
