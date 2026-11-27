@@ -84,7 +84,7 @@ Object.assign(Store.prototype, {
     });
   },
 
-  saveTransfer({ from, to, amount, day, memo = '' }, id = null) {
+  saveTransfer({ from, to, amount, day, memo = '' }, id = null, { alongside } = {}) {
     return this.commit((data) => {
       if (!(Number.isInteger(amount) && amount > 0 && amount <= MAXIMUM)) throw new LedgerError('金額は1円以上の整数で入力してください。');
       if (!from || !to) throw new LedgerError('口座を選んでください。');
@@ -97,6 +97,7 @@ Object.assign(Store.prototype, {
         ...(old ?? { id: this.uuid(), kind: 'transfer', scope: 'personal', storeName: '', createdAt: time }),
         accountID: from, destinationAccountID: to, amount, day, memo: text(memo), updatedAt: time,
       });
+      if (!old) alongside?.(data, value, time);
       replace(data.transactions, value);
       return value;
     });

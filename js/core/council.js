@@ -6,6 +6,7 @@ import { unpaid, liabilities } from './schedule.js';
 import { pending, outlook } from './payroll.js';
 import { budgetStatuses, goalStatus, activeGoals, SCOPES } from './planning.js';
 import { findings } from './advice.js';
+import { warnings as unknownWarnings, ADVICE as UNKNOWN_ADVICE } from './unknown.js';
 import { yen, signed } from './money.js';
 import { Store, LedgerError } from './store.js';
 
@@ -48,6 +49,9 @@ export function report(data, kind, today, scope = 'all') {
   ]);
   const top = expenseByCategory(data, range, scope).filter((x) => x.amount > 0).slice(0, 3);
   add(`${outName}の多い項目`, top.map((x, i) => `${i + 1}. ${categoryName(data, x.categoryID)} ${yen(x.amount)}`));
+
+  const unknown = unknownWarnings(data, range, previous, scope);
+  add('不明金', unknown);
 
   const assets = totalAssets(data, today);
   const debt = liabilities(data);
@@ -97,6 +101,7 @@ export function report(data, kind, today, scope = 'all') {
   if (advice.yearlySaving) add('削減の目標', [`候補をすべて実行した場合：月 ${yen(advice.monthlySaving)}、年 ${yen(advice.yearlySaving)}（推定。同じ対象は1回だけ数えています）`]);
 
   const actions = advice.items.slice(0, 3).map((f, i) => `${i + 1}. ${f.action}（${f.target}）`);
+  if (unknown.length) actions.push(UNKNOWN_ADVICE);
   if (!live(data.budgets).length) actions.push('予算を設定すると、使いすぎを早く見つけられます。');
   if (!activeGoals(data).length) actions.push('貯蓄目標を決めると、毎月の必要額を計算できます。');
   add('次の作戦', actions.length ? actions : ['大きな問題は見つかりません。記録を続けてください。']);

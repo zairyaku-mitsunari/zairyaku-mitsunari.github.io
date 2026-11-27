@@ -27,7 +27,7 @@ export function openCamera(done) {
     }
     (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } } });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2880 } } });
         if (!video.isConnected) { stop(); return; }
         video.srcObject = stream;
         await video.play().catch(() => {});

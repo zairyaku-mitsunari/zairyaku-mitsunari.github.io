@@ -18,6 +18,46 @@ function common(values) {
   return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
 
+const sameName = (a, b) => a.replace(/\s/g, '') === b.replace(/\s/g, '');
+
+/**
+ * 商品ごとに、何回かの読み取りで実際に読めた金額の中から選び、合計と一致する組み合わせを探す。
+ * 変える数がいちばん少ない組み合わせが1通りに決まるときだけ使う（どれか分からないときは直さない）。
+ */
+export function pickAmounts(base, others, total) {
+  const used = others.map(() => new Set());
+  const options = base.items.map((item) => {
+    const values = [item.amount];
+    others.forEach((other, k) => {
+      const index = other.items.findIndex((x, i) => !used[k].has(i) && sameName(x.name, item.name));
+      if (index < 0) return;
+      used[k].add(index);
+      if (!values.includes(other.items[index].amount)) values.push(other.items[index].amount);
+    });
+    // 数量×単価と同じ金額が読めていれば、それを使う
+    const product = item.quantity && item.unitPrice ? item.quantity * item.unitPrice : null;
+    return values.includes(product) ? [product] : values;
+  });
+  const open = options.map((v, i) => (v.length > 1 || v[0] !== base.items[i].amount ? i : -1)).filter((i) => i >= 0);
+  if (!open.length || open.length > 14) return null;
+  const items = base.items.map((item, i) => ({ ...item, amount: options[i][0] }));
+  let found = null, fewest = Infinity, ties = 0, tried = 0;
+  const search = (k, changes) => {
+    if (changes > fewest || tried > 200_000) return;
+    if (k === open.length) {
+      tried += 1;
+      if (sumOf({ ...base, items }) !== total) return;
+      if (changes < fewest) { fewest = changes; ties = 1; found = items.map((i) => ({ ...i })); } else ties += 1;
+      return;
+    }
+    const i = open[k];
+    for (const amount of options[i]) { items[i].amount = amount; search(k + 1, changes + (amount === base.items[i].amount ? 0 : 1)); }
+    items[i].amount = options[i][0];
+  };
+  search(0, 0);
+  return found && ties === 1 && tried <= 200_000 ? found : null;
+}
+
 /** 何回かの読み取り結果を1つにする */
 export function combine(parsedList) {
   const best = [...parsedList].sort((a, b) => quality(b) - quality(a))[0];
@@ -29,6 +69,16 @@ export function combine(parsedList) {
     for (const candidate of parsedList) {
       const total = totals.find((t) => candidate.items.length && sumOf(candidate) === t);
       if (total !== undefined) { Object.assign(result, { items: candidate.items, discount: candidate.discount, addedTax: candidate.addedTax, includedTax: candidate.includedTax, total }); break; }
+    }
+  }
+  if (!matches(result)) {
+    // 商品ごとに、読めた金額を組み合わせる
+    const candidates = [...new Set(totals)].sort((a, b) => totals.filter((t) => t === b).length - totals.filter((t) => t === a).length);
+    for (const source of [...parsedList].sort((a, b) => quality(b) - quality(a))) {
+      const total = candidates.find((t) => source.items.length && pickAmounts(source, parsedList.filter((p) => p !== source), t));
+      if (total === undefined) continue;
+      Object.assign(result, { items: pickAmounts(source, parsedList.filter((p) => p !== source), total), discount: source.discount, addedTax: source.addedTax, includedTax: source.includedTax, total });
+      break;
     }
   }
   if (!matches(result)) result.total = common(totals) ?? result.total;

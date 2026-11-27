@@ -2,9 +2,12 @@
 import { h, button, sheet, panel, row, note, confirmSheet } from './dom.js';
 import { categoryPicker } from './picker.js';
 import { openCamera } from './camera.js';
+import { overlapField } from './unknown.js';
+import { offset } from '../core/unknown.js';
 import * as L from '../core/ledger.js';
 import * as R from '../core/receipt.js';
 import { Classifier, sourceTitle } from '../core/classify.js';
+import { apply as learnedName, remember } from '../core/learn-names.js';
 import { parseAmount, yen, signed } from '../core/money.js';
 import { today, isDay } from '../core/date.js';
 import { monthContaining } from '../core/finance.js';
@@ -12,6 +15,10 @@ import { decode, compress } from '../image.js';
 
 const kindName = { receipt: 'レシート・領収書', bill: '請求明細', statement: '利用明細・入出金明細' };
 const paymentName = { cash: '現金', card: 'クレジットカード', paypay: 'PayPay', emoney: '電子マネー' };
+
+/** 直した商品名の覚え書き（この端末だけ。記録やバックアップには入れない） */
+const NAMES = 'ocr-names';
+const learnedNames = async (app) => (await app.store.persistence.local(NAMES).catch(() => null)) ?? [];
 
 export async function fingerprint(buffer) {
   const hash = await crypto.subtle.digest('SHA-256', buffer);
@@ -55,6 +62,7 @@ export function openImport(app, inputs = []) {
     const body = h('div', { className: 'import' });
     const message = h('p', { className: 'error', role: 'alert' });
     const files = h('input', { type: 'file', accept: 'image/*,application/pdf,.pdf', multiple: true, hidden: true, id: 'import-images', onchange: () => { add([...files.files]); files.value = ''; } });
+    const native = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true, id: 'native-camera', onchange: () => { add([...native.files]); native.value = ''; } });
     const pasted = h('textarea', { rows: 5, 'aria-label': '貼り付ける文字', placeholder: '写真アプリなどでコピーしたレシートの文字を、ここに貼り付けます' });
     const done = () => { closed = true; document.removeEventListener('paste', onPaste); close(); app.render(); };
 
@@ -106,6 +114,7 @@ export function openImport(app, inputs = []) {
       if (!job || job.result || job.failure) return;
       busy = true;
       try {
+        job.names = await learnedNames(app);
         if (job.text) {
           const lines = job.text.split(/\r?\n/);
           job.result = { lines, parsed: R.parseDocument(lines, today()), files: [], fingerprint: await fingerprint(new TextEncoder().encode(job.text)) };
@@ -143,11 +152,15 @@ export function openImport(app, inputs = []) {
       if (!job) { body.replaceChildren(chooser()); return; }
       const count = jobs.length > 1 ? `（${index + 1}／${jobs.length}件目）` : '';
       if (job.failure) body.replaceChildren(note(job.failure, 'error'), h('div', { className: 'actions' }, button('次へ', () => next(false), 'gold')));
-      else if (!job.result) body.replaceChildren(h('p', { className: 'progress', role: 'status' }, `読み取っています…${count}`), note('はじめての読み取りは、文字認識の部品を読み込むので時間がかかります。画像は端末の外に送りません。'));
+      else if (!job.result) body.replaceChildren(h('p', { className: 'progress', role: 'status' }, `読み取っています…${count}`), note('はじめての読み取りは、文字認識の部品（約46MB）を読み込むので時間がかかります。画像は端末の外に送りません。'));
       else {
         const skip = button('この書類は登録しない', () => next(false));
         const view = job.result.parsed.kind === 'statement' ? statementReview(app, job.result, next) : receiptReview(app, job, next, draw);
-        body.replaceChildren(h('div', { className: 'actions' }, h('strong', {}, `確認${count}`), skip), view);
+        const warnings = [
+          job.result.fallback ? note('高精度の文字認識を使えなかったため、簡易の方式で読みました。読み違いが増えます。通信できる状態で、もう一度試してください。', 'note warn') : null,
+          job.result.confidence != null && job.result.confidence < 0.85 ? note('文字がはっきり読めていません。明るい場所で真上から撮り直すと、良くなることがあります。', 'note warn') : null,
+        ];
+        body.replaceChildren(h('div', { className: 'actions' }, h('strong', {}, `確認${count}`), skip), ...warnings.filter(Boolean), view);
       }
     }
 
@@ -157,10 +170,12 @@ export function openImport(app, inputs = []) {
       return h('div', {},
         registered ? note(`${registered}件の書類を登録しました。`, 'done') : null,
         h('div', { className: 'choices' },
-          button('カメラで撮影', () => openCamera(add), 'gold', { id: 'open-camera' }),
+          button('端末のカメラで撮影（おすすめ）', () => native.click(), 'gold', { id: 'native-shot' }),
+          button('アプリ内カメラ（続けて撮影）', () => openCamera(add), 'outline', { id: 'open-camera' }),
           button('画像・PDFを選ぶ', () => files.click()),
           button('貼り付け', pasteButton, 'outline', { id: 'paste-button' })),
-        files, drop,
+        files, native, drop,
+        note('撮り方：レシート全体を入れ、明るい場所で真上から。影が入らないようにし、ぼけていないことを確かめてください。'),
         panel('文字を貼り付けて読み取る', note('iPhoneの写真アプリでは、画像の文字を長押ししてコピーできます（テキスト認識表示）。文字認識より正確な場合があります。'), pasted,
           h('div', { className: 'actions' }, button('文字から読み取る', addText, 'gold', { id: 'read-text' }))),
         note('読み取りはこの端末の中で行い、画像も文字も外部には送りません。撮影した画像は写真アプリに保存しません。確認して登録するまで、記録は増えません。'),
@@ -170,7 +185,10 @@ export function openImport(app, inputs = []) {
     draw();
     if (inputs.length) add(inputs);
     return h('div', {}, h('div', { className: 'sheet-close' }, button('閉じる', done, 'outline', { id: 'close-import' })), message, body);
-  }, { className: 'full', onClose: () => { closed = true; }, head: 'receipt' });
+  }, { className: 'full', head: 'receipt', onClose: () => {
+    closed = true;
+    import('../ocr-paddle.js').then((m) => m.stop()).catch(() => {}); // 読み取り用のメモリを返す
+  } });
 }
 
 /** PDF：文字があれば文字を取り出し、写真だけのPDFは文字認識する */
@@ -236,8 +254,13 @@ function receiptReview(app, job, next, redraw) {
       storeName: parsed.storeName ?? '', day: parsed.day ?? '', total: parsed.total != null ? String(parsed.total) : '',
       discount: parsed.discount ? String(parsed.discount) : '', tax: parsed.addedTax ? String(parsed.addedTax) : '',
       source: suggestedSource(app, parsed.payment), anyway: false,
-      lines: items.map((item) => { const s = classifier.suggest(item.name, parsed.storeName, { fuzzy: !job.text }); // 画像の読み取りは読み違いを考慮
-        return { name: item.name, quantity: item.quantity ?? null, amount: String(item.amount), discount: item.discount, categoryID: s.categoryID, suggested: s.categoryID, source: s.source }; }),
+      lines: items.map((item) => {
+        const read = parsed.items.length ? item.name : null; // 内訳がないときは、名前を覚えない
+        const { name, from } = read == null ? { name: item.name, from: null } : learnedName(job.names ?? [], store.data, read);
+        const s = classifier.suggest(name, parsed.storeName, { fuzzy: !job.text }); // 画像の読み取りは読み違いを考慮
+        return { name, read, renamed: from, doubtful: (result.doubtful ?? []).includes(item.name), quantity: item.quantity ?? null, unitPrice: item.unitPrice ?? null,
+          amount: String(item.amount), discount: item.discount, categoryID: s.categoryID, suggested: s.categoryID, source: s.source };
+      }),
     };
   }
   const state = job.state;
@@ -247,6 +270,8 @@ function receiptReview(app, job, next, redraw) {
   const problems = h('div');
   const failure = h('p', { className: 'error', role: 'alert' });
   const register = button('確認して一括登録', submit, 'gold wide', { id: 'register' });
+  const covered = overlapField(app, () => [{ kind: 'expense', day: state.day, categoryID: null, accountID: sourceIDs(state.source).accountID,
+    amount: payable().reduce((a, b) => a + b, 0) }]);
 
   const payable = () => R.payableAmounts(state.lines.map((l) => ({ amount: value(l.amount) ?? 0, discount: l.discount })), value(state.discount) ?? 0, value(state.tax) ?? 0);
   const record = () => ({
@@ -266,7 +291,14 @@ function receiptReview(app, job, next, redraw) {
         button(line.categoryID ? L.categoryName(store.data, line.categoryID) : '項目を選ぶ・作る', () => categoryPicker(app, 'expense', line.categoryID, (id) => { line.categoryID = id; drawLines(); update(); }, line.name),
           `chip-button ${line.categoryID ? '' : 'missing'}`, { 'data-line': String(i) }),
         h('small', {}, line.categoryID ? (line.categoryID === line.suggested ? sourceTitle[line.source] : '修正済み') : '要確認'),
-        line.discount ? h('small', {}, `値引 ${yen(line.discount)}`) : null))));
+        line.quantity > 1 || line.unitPrice ? h('small', {}, `${line.quantity ?? '?'}点${line.unitPrice ? ` × 単価 ${yen(line.unitPrice)}` : ''}`) : null,
+        line.discount ? h('small', {}, `値引 ${yen(line.discount)}`) : null),
+      line.quantity && line.unitPrice && value(line.amount) != null && line.quantity * line.unitPrice !== value(line.amount)
+        ? note('数量 × 単価と金額が合いません。原本を確かめてください。', 'note warn') : null,
+      line.doubtful ? note('この行は読み取りに自信がありません。原本と見比べてください。', 'note warn') : null,
+      line.renamed && line.name !== line.read ? h('div', { className: 'line-sub' },
+        h('small', {}, `${line.renamed === 'learned' ? '前に直した名前' : '以前の記録の名前'}を使いました（読み取り：${line.read}）`),
+        button('読み取りに戻す', () => { line.name = line.read; line.renamed = null; drawLines(); }, 'link', { 'data-restore': String(i) })) : null)));
   }
 
   function update() {
@@ -310,6 +342,7 @@ function receiptReview(app, job, next, redraw) {
     problems.replaceChildren(...list_.map((p) => note(p, 'note warn')));
     register.disabled = list_.length > 0;
     failure.textContent = '';
+    covered.update();
   }
 
   async function submit() {
@@ -328,7 +361,10 @@ function receiptReview(app, job, next, redraw) {
     }));
     const corrections = parsed.items.length ? state.lines.filter((l) => l.categoryID !== l.suggested && l.name !== '差額').map((l) => ({ name: l.name, categoryID: l.categoryID })) : [];
     try {
-      await store.registerDocument(record(), drafts, { files: result.files, corrections });
+      await store.registerDocument(record(), drafts, { files: result.files, corrections, alongside: covered.checked() ? offset : undefined });
+      const pairs = state.lines.filter((l) => l.read != null && R.redact(l.read) === l.read).map((l) => ({ read: l.read, name: R.redact(l.name) }));
+      // 名前の覚え書きは補助なので、保存できなくても登録は成功のまま
+      if (pairs.length) await store.persistence.setLocal(NAMES, remember(await learnedNames(app), pairs)).catch(() => {});
       app.month = monthContaining(state.day, store.data);
       next(true);
     } catch (error) { failure.textContent = error.message; register.disabled = false; }
@@ -345,12 +381,12 @@ function receiptReview(app, job, next, redraw) {
     panel(kindName[parsed.kind],
       field('店舗名', textInput('店舗名', state.storeName, (v) => { state.storeName = v; })),
       field('購入日', day), parsed.day ? null : note('購入日は読み取れませんでした。', 'note warn'),
-      field('支払い方法', sourceSelect(app, state.source, (v) => { state.source = v; })),
+      field('支払い方法', sourceSelect(app, state.source, (v) => { state.source = v; update(); })),
       note(parsed.payment ? `読み取った支払い方法：${paymentName[parsed.payment]}` : '支払い方法は読み取れませんでした。')),
     duplicates,
     panel('商品と支出項目', parsed.items.length ? null : note('商品の内訳は読み取れないため、合計だけを1行にしています。内訳は作りません。'), list,
       button('行を追加', () => { state.lines.push({ name: '', quantity: null, amount: '', discount: 0, categoryID: null, suggested: null, source: 'unknown' }); drawLines(); update(); }, 'outline')),
-    panel('金額の照合', field('支払った合計', total), field('全体の値引き', discount), field('上乗せされる消費税（外税）', tax), summary, problems, failure, register)));
+    panel('金額の照合', field('支払った合計', total), field('全体の値引き', discount), field('上乗せされる消費税（外税）', tax), summary, problems, covered.element, failure, register)));
 }
 
 function statementReview(app, result, next) {
@@ -366,6 +402,8 @@ function statementReview(app, result, next) {
   const totals = h('div');
   const failure = h('p', { className: 'error', role: 'alert' });
   const register = button('選んだ行を一括登録', submit, 'gold wide', { id: 'register' });
+  const draftsNow = () => rows.filter((r) => r.included).map((r) => ({ kind: r.isIncome ? 'income' : 'expense', day: r.day, amount: r.amount, categoryID: r.categoryID, accountID: sourceIDs(source).accountID }));
+  const covered = overlapField(app, draftsNow);
   const note_ = (r) => (r.status === 'cardWithdrawal' ? 'カード代金の引き落とし（支出にしません）' : r.status === 'recorded' ? '同じ金額の記録があります（登録済みの可能性）' : r.isYearAssumed ? '年の記載がないため推定した日付です' : '新しい明細');
   function draw() {
     list.replaceChildren(...rows.map((r, i) => h('div', { className: 'line' },
@@ -379,6 +417,7 @@ function statementReview(app, result, next) {
     totals.replaceChildren(row(`選んだ支出の合計（${chosen.filter((r) => !r.isIncome).length}行）`, yen(chosen.filter((r) => !r.isIncome).reduce((s, r) => s + r.amount, 0)), 'large'),
       ...(chosen.some((r) => !r.categoryID) ? [note('項目が決まっていない行があります。', 'note warn')] : []));
     register.disabled = !chosen.length || chosen.some((r) => !r.categoryID);
+    covered.update();
   }
   async function submit() {
     if (register.disabled) return;
@@ -390,7 +429,7 @@ function statementReview(app, result, next) {
     const latest = drafts.map((d) => d.day).sort().at(-1);
     try {
       await store.registerDocument({ kind: 'statement', storeName: parsed.storeName ?? '利用明細', day: latest, total: drafts.reduce((s, d) => s + d.amount, 0),
-        lines: chosen.map((r) => ({ name: r.description, amount: r.amount, categoryID: r.categoryID })), fingerprints: [result.fingerprint] }, drafts, { files: result.files });
+        lines: chosen.map((r) => ({ name: r.description, amount: r.amount, categoryID: r.categoryID })), fingerprints: [result.fingerprint] }, drafts, { files: result.files, alongside: covered.checked() ? offset : undefined });
       app.month = monthContaining(latest, store.data);
       next(true);
     } catch (error) { failure.textContent = error.message; register.disabled = false; }
@@ -398,9 +437,9 @@ function statementReview(app, result, next) {
   draw();
   return h('div', { className: 'review' }, h('div', { className: 'original' }, originalPreview(result)),
     h('div', { className: 'review-main' },
-      panel(`明細の取り込み（${rows.length}行）`, h('label', { className: 'field' }, h('span', {}, '支払い方法'), sourceSelect(app, source, (v) => { source = v; })),
+      panel(`明細の取り込み（${rows.length}行）`, h('label', { className: 'field' }, h('span', {}, '支払い方法'), sourceSelect(app, source, (v) => { source = v; covered.update(); })),
         note('カードの明細はそのカードを、銀行の明細はその口座を選んでください。同じ金額の記録がある行と、カード代金の引き落としは、はじめは選んでいません。読み落とした行がないか原本と見比べてください。')),
-      panel(null, list, totals, failure, register)));
+      panel(null, list, totals, covered.element, failure, register)));
 }
 
 export function openReceipt(app, id) {

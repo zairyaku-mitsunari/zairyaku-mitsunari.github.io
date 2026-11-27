@@ -10,7 +10,7 @@ export function platform(nav = navigator, standaloneQuery = () => matchMedia('(d
   return { ios, standalone: nav.standalone === true || standaloneQuery() };
 }
 
-export const INSTALL_STEPS = ['iPhoneの「Safari」でこのアプリを開く（ほかのアプリ内の画面ではなく）。', '画面の下の「共有」ボタン（四角から上向きの矢印）を押す。', '「ホーム画面に追加」を選び、右上の「追加」を押す。',
+export const INSTALL_STEPS = ['iPhoneの「Safari」でこのアプリを開く（ほかのアプリ内の画面ではなく）。', '「ページメニュー」ボタンを押して「共有」を選ぶ（共有ボタン＝四角から上向きの矢印が見えていれば、それを押す）。', '一覧を下へ送り「ホーム画面に追加」を選ぶ（なければ一番下の「アクションを編集」から追加）。「ウェブアプリとして開く」をオンにして「追加」を押す。',
   'ホーム画面の「財略三成」のアイコンから開く。以後は、いつもこのアイコンから使う。'];
 const SEPARATE = 'Safari で開いた画面と、ホーム画面のアイコンから開いた画面では、記録の保存場所が別です。記録を入力する前に、ホーム画面に追加してください。';
 
@@ -73,10 +73,10 @@ export function devicePanel(app) {
     list.replaceChildren(...items.map(([k, v]) => row(k, v)));
   };
   refresh().catch(() => list.replaceChildren(note('確認できませんでした。')));
-  const prepare = button('文字認識をオフライン用に保存する（約14MB）', async () => {
+  const prepare = button('文字認識をオフライン用に保存する（約46MB）', async () => {
     if (!controller()) { status.textContent = '先に、通信できる状態でアプリを開き直してください。'; return; }
     prepare.disabled = true;
-    status.textContent = '保存しています…（通信量は約14MBです。画面を閉じないでください）';
+    status.textContent = '保存しています…（通信量は約46MBです。Wi-Fiでの保存をおすすめします。画面を閉じないでください）';
     const result = await message(controller(), 'prepare-vendor');
     prepare.disabled = false;
     status.textContent = result?.ok ? '保存しました。通信できないときも、文字認識とPDFの読み取りを使えます。' : '保存できませんでした。通信の状態を確かめて、もう一度試してください。';

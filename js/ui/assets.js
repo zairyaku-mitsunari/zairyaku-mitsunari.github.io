@@ -5,6 +5,8 @@ import { categoryPicker } from './picker.js';
 import { entryRow } from './screens.js';
 import { paymentsView } from './payments.js';
 import { calendarView } from './calendar.js';
+import { reconcileSheet, overlapField } from './unknown.js';
+import { offset } from '../core/unknown.js';
 import * as L from '../core/ledger.js';
 import * as F from '../core/finance.js';
 import * as S from '../core/schedule.js';
@@ -48,7 +50,8 @@ function accounts(app, now) {
     h('div', { className: 'cards' }, L.live(data.accounts).sort((a, b) => Number(a.isArchived) - Number(b.isArchived) || a.sortOrder - b.sortOrder).map((a) => {
       const value = F.balance(data, a, now);
       return h('section', { className: 'panel' }, title(a.name, a.isArchived ? h('small', {}, '非表示') : null, editButton(`口座${a.name}を編集`, () => accountEditor(app, a))),
-        row(S.ACCOUNT_TYPES[a.type] ?? 'その他', value == null ? '残高は未入力' : yen(value), 'large'), a.openingDay ? note(`基準日 ${a.openingDay} から計算`) : null);
+        row(S.ACCOUNT_TYPES[a.type] ?? 'その他', value == null ? '残高は未入力' : yen(value), 'large'), a.openingDay ? note(`基準日 ${a.openingDay} から計算`) : null,
+        a.isArchived ? null : h('div', { className: 'actions start' }, button('残高を合わせる', () => reconcileSheet(app, a), 'outline small', { 'aria-label': `${a.name}の残高を合わせる`, 'data-reconcile': a.id })));
     })));
 }
 
@@ -77,9 +80,13 @@ export function transferEditor(app, entry = null) {
     const amount = moneyField('金額（円）', entry?.amount);
     const day = dateField('日付', entry?.day ?? today());
     const memo = textField('メモ', entry?.memo);
+    const draft = () => ({ kind: 'transfer', accountID: from.value(), destinationAccountID: to.value(), amount: amount.value(), day: day.value() });
+    const covered = overlapField(app, () => (entry || !from.value() || !to.value() ? [] : [draft()]));
+    for (const input of [from.input, to.input, amount.input, day.input]) input.addEventListener('input', covered.update);
+    covered.update();
     return {
-      content: [from.element, to.element, amount.element, day.element, memo.element, note('口座の間でお金を動かすだけなので、収入にも支出にも数えません。')],
-      save: async () => { requireValid(amount); await app.store.saveTransfer({ from: from.value(), to: to.value(), amount: amount.value(), day: day.value(), memo: memo.value() }, entry?.id); },
+      content: [from.element, to.element, amount.element, day.element, memo.element, covered.element, note('口座の間でお金を動かすだけなので、収入にも支出にも数えません。')],
+      save: async () => { requireValid(amount); await app.store.saveTransfer({ from: from.value(), to: to.value(), amount: amount.value(), day: day.value(), memo: memo.value() }, entry?.id, covered.checked() ? { alongside: offset } : {}); },
       remove: entry ? deletion(app, entry) : null,
     };
   }, { head: 'input' });

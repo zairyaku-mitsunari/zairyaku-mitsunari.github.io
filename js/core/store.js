@@ -2,7 +2,7 @@
 // 保存形式は Swift版（版6）と同じ。分からない欄はそのまま残し、空の値は欄ごと省く。
 import { isDay } from './date.js';
 import { MAXIMUM, yen } from './money.js';
-import { find, live, selectable, items, groups } from './ledger.js';
+import { find, live, selectable, items, groups, addUnknownCategories } from './ledger.js';
 import { redact } from './receipt.js';
 import { itemKey } from './classify.js';
 import { mergeLedgers, LISTS } from './merge.js';
@@ -78,7 +78,7 @@ export class Store {
           }
           await this.persistence.save(JSON.stringify(data), { keepAs: `before-upgrade-v${old}` });
         }
-        this.data = data;
+        this.data = addUnknownCategories(data, this.defaults);
       }
       this.failure = null;
     } catch (error) {
@@ -152,11 +152,13 @@ export class Store {
     };
   }
 
-  addTransaction(input) {
+  /** alongside(data, 記録, 時刻) は、同じ1回の保存で行う変更（不明金の差し引きなど） */
+  addTransaction(input, { alongside } = {}) {
     return this.commit((data) => {
       const draft = this.normalized(data, input);
       this.validate(data, draft);
       const time = this.now();
+      alongside?.(data, draft, time);
       const record = compact({ id: this.uuid(), ...this.fields(draft), createdAt: time, updatedAt: time });
       data.transactions.push(record);
       return record;
@@ -238,7 +240,7 @@ export class Store {
   }
 
   /** 確認済みのレシート・明細をまとめて1回で登録する。レシートと請求は、合計が一致しなければ登録しない。 */
-  async registerDocument(receipt, drafts, { files = [], corrections = [] } = {}) {
+  async registerDocument(receipt, drafts, { files = [], corrections = [], alongside } = {}) {
     if (!drafts.length) throw new LedgerError('登録する内容がありません。');
     if (receipt.kind !== 'statement') {
       const sum = drafts.reduce((s, d) => s + d.amount, 0);
@@ -251,6 +253,7 @@ export class Store {
       return await this.commit((data) => {
         for (const draft of drafts) this.validate(data, draft);
         const time = this.now();
+        for (const draft of drafts) alongside?.(data, draft, time);
         const record = this.receiptRecord(receipt, saved.map((f) => f.name), time);
         const entries = drafts.map((draft) => compact({ id: this.uuid(), ...this.fields(draft), receiptID: record.id, createdAt: time, updatedAt: time }));
         data.receipts.push(record);
@@ -381,7 +384,7 @@ export class Store {
     const run = async () => {
       if (files.length) await this.persistence.saveFiles(files);
       await this.persistence.save(JSON.stringify(incoming), { keepAs: 'before-import' });
-      this.data = incoming;
+      this.data = addUnknownCategories(incoming, this.defaults);
       this.failure = null;
     };
     const task = this.queue.then(run);

@@ -56,6 +56,26 @@ export function selectable(data, kind) {
 }
 
 export const find = (list, id) => list.find((x) => x.id === id);
+
+/** 不明金の項目（固定の番号は Swift版の DefaultData と同じ） */
+export const UNKNOWN = { name: '不明金', ids: { expense: '4D495453-0000-4000-8000-000200000253', income: '4D495453-0000-4000-8000-000100000110' } };
+
+export function isUnknownCategory(data, id) {
+  if (id === UNKNOWN.ids.expense || id === UNKNOWN.ids.income) return true;
+  const category = find(data.categories, id);
+  return !!category && !category.isGroup && category.name === UNKNOWN.name;
+}
+
+/** 不明金の項目がないデータに足す（同じ名前の項目があれば足さない）。保存は、次に何かを変えたとき。 */
+export function addUnknownCategories(data, defaults) {
+  for (const kind of ['income', 'expense']) {
+    const exists = data.categories.some((c) => c.id === UNKNOWN.ids[kind])
+      || live(data.categories).some((c) => c.kind === kind && !c.isGroup && c.name === UNKNOWN.name);
+    const template = defaults.categories.find((c) => c.id === UNKNOWN.ids[kind]);
+    if (!exists && template) data.categories.push({ ...template });
+  }
+  return data;
+}
 export const categoryName = (data, id) => find(data.categories, id)?.name ?? '未分類';
 export function categoryPath(data, id) {
   const parent = find(data.categories, find(data.categories, id)?.parentID);

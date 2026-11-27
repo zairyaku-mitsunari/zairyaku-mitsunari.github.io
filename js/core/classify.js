@@ -74,7 +74,9 @@ export class Classifier {
     const usable = new Set(this.categories.map((c) => c.id));
     if (key) {
       const rule = this.rules.find((r) => r.key === key && usable.has(r.categoryID))
-        ?? this.rules.find((r) => r.key.length >= 4 && key.includes(r.key) && usable.has(r.categoryID));
+        ?? this.rules.find((r) => r.key.length >= 4 && key.includes(r.key) && usable.has(r.categoryID))
+        // 画像の読み取りでは、直した言葉と1文字違いも同じ商品とみなす
+        ?? (fuzzy ? this.rules.find((r) => r.key.length >= 5 && nearly(r.key, key) && usable.has(r.categoryID)) : undefined);
       if (rule) return { categoryID: rule.categoryID, source: 'learned' };
     }
     const defaults = new Set(this.table.defaultIDs);

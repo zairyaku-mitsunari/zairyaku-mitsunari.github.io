@@ -7,6 +7,7 @@ import { councilView, adviceView, consultView } from './insight.js';
 import { diagnosisView } from './diagnosis.js';
 import { lineChart, donutChart, COLORS } from './chart.js';
 import { csvSheet } from './export.js';
+import { unknownPanel } from './unknown.js';
 import { trends } from '../core/diagnosis.js';
 import { compare as changes } from '../core/trends.js';
 import { stop } from './voice.js';
@@ -94,6 +95,7 @@ function reportView(app) {
     panel(netName, compare(inName, sum.income, before.income, 'income'), compare(outName, sum.expense, before.expense, 'expense'), row(netName, yen(sum.net), 'large net'),
       note(`${range.start} 〜 ${range.end} に記録した実績です。${hasBefore ? `前の期間は ${previous.start} 〜 ${previous.end}。` : '前の期間の記録はありません。'}`)),
     app.span === 'month' ? changePanel(app) : null,
+    unknownPanel(app, range),
     panel(`項目別の${outName}`, totals.length ? totals.map((x) => {
       const share = `${(Math.round((x.amount * 1000) / whole) / 10).toFixed(1)}%`;
       return h('div', { className: 'bar' }, h('div', { className: 'row' }, h('span', {}, L.categoryName(data, x.categoryID)), h('span', {}, `${yen(x.amount)}　${share}`)),

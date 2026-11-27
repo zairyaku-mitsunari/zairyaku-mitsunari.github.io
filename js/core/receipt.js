@@ -25,7 +25,11 @@ export function layoutLines(fragments) {
 const JA = '[\\u3040-\\u30ff\\u3400-\\u9fff々ー]';
 /** 文字認識（Tesseract）で起こりやすい形の乱れを直す。手で貼り付けた文字には使わない。 */
 export function cleanOCRLine(line) {
-  return normalize(line)
+  return japaneseForms(normalize(line))
+    .replace(/([ァ-ヺ])[一—―](?=[ァ-ヺ]|[\s\d]|$)/g, '$1ー') // 長音を漢字の「一」と読んだもの
+    // 形が同じ漢字とカタカナの取り違え：両側がカタカナならカタカナ、両側が漢字なら漢字
+    .replace(/(?<=[ァ-ヺー])[力口工夕卜](?=[ァ-ヺー])/g, (c) => ({ 力: 'カ', 口: 'ロ', 工: 'エ', 夕: 'タ', 卜: 'ト' })[c])
+    .replace(/(?<=[一-鿿])[カロエタ](?=[一-鿿])/g, (c) => ({ カ: '力', ロ: '口', エ: '工', タ: '夕' })[c])
     .replace(new RegExp(`(${JA}) (?=${JA})`, 'g'), '$1')
     .replace(/[¥￥] +(?=[\d-])/g, '¥')
     .replace(/(?<![A-Za-z0-9])[YyVv](?=(?:\d{1,3}(?:[,.]\d{3})+|\d{2,7})(?!\d))/g, '¥')
@@ -33,6 +37,14 @@ export function cleanOCRLine(line) {
     .replace(/(\d)\.(\d{3})(?![\d.])/g, '$1,$2')
     .replace(/(\d) *, *(\d{3})/g, '$1,$2');
 }
+
+// 文字認識が日本語の漢字を中国の字体で返すことがある。日本語では使わない字だけを置き換える。
+const SIMPLIFIED = '剂费个单价领证时间计额现钱饮饭鸡鱼鲜汤热冻乌无纸电话账员买卖购货总应对预币张营业门车马鸟药妆护齿肤卫产东书杂语请谢欢临优积码绿红蓝丽种类细级经结给线终统绢绵纳网罗记订认让设评试调饼馒烧炼养组补净洁选扫术疗诊处场图团园圆长开关闭问阳页顶项顺顾题风飞馆';
+const JAPANESE = '剤費個単価領証時間計額現銭飲飯鶏魚鮮湯熱凍烏無紙電話帳員買売購貨総応対預幣張営業門車馬鳥薬粧護歯膚衛産東書雑語請謝歓臨優積碼緑紅藍麗種類細級経結給線終統絹綿納網羅記訂認譲設評試調餅饅焼練養組補浄潔選掃術療診処場図団園円長開関閉問陽頁頂項順顧題風飛館';
+const VARIANT = new Map([...SIMPLIFIED].map((c, i) => [c, [...JAPANESE][i]]));
+export const japaneseForms = (text) => [...text].map((c) => VARIANT.get(c) ?? c).join('');
+// 繁体字で返ることがある字（人名などで使う旧字体は変えない）
+for (const [from, to] of ['綠緑', '劑剤', '單単', '價価', '點点', '稅税', '內内', '錢銭', '麵麺', '燒焼']) VARIANT.set(from, to);
 
 export function normalize(text) {
   return String(text).normalize('NFKC').replace(/[￥\\]/g, '¥').replace(/　/g, ' ');
@@ -94,7 +106,10 @@ export function findDay(line, today) {
 const TOTAL = ['現計', 'お買上計', 'お買上げ計', 'お買い上げ計', '税込計', '合計', 'ご請求額', 'ご請求金額', '請求金額', 'お支払金額', 'お支払い金額', '支払金額', '領収金額', 'お会計', '注文合計', '支払い合計', 'ご利用金額合計', '今回請求'];
 const SKIP = ['お釣', '釣銭', 'つり銭', 'お預', '預り', '預かり', 'ポイント残', '獲得', '付与', '点数', '対象', 'TEL', '電話', '登録番号', '担当', '責任者', '会員番号', '承認番号', '伝票', '残高', 'No.', '番号'];
 // 電話番号・会員番号など、金額ではない案内の行。値引きにも、合計より後の行の始まりにもしない。
-const INFO = ['TEL', '電話', '登録番号', '承認番号', '伝票', '会員番号', '会員No', 'カード番号', 'No.', '担当', '責任者'];
+const INFO = ['TEL', '電話', '登録番号', '承認番号', '伝票', '会員番号', '会員No', 'カード番号', 'No.', '担当', '責任者', 'テーブル', '人数', '〒'];
+/** 金額の行ではないと形で分かるもの：電話番号、登録番号、バーコードの数字、伏せ字のカード番号 */
+const isCode = (line) => /(?<!\d)0\d{1,3}-\d{2,4}-\d{3,4}(?!\d)/.test(line) || /(?<![A-Za-z])T\d{13}(?!\d)/.test(line)
+  || /^(?:JAN)?[\d ]{8,}$/i.test(line) || /^JAN/i.test(line) || /[*＊●•]{4}/.test(line);
 const DISCOUNT = ['値引', '割引', 'クーポン', 'ポイント利用', 'ポイント値引', '特売値引', 'OFF'];
 
 const has = (line, words) => { const compact = line.replace(/ /g, '').toLowerCase(); return words.some((w) => compact.includes(w.toLowerCase())); };
@@ -108,7 +123,7 @@ export function paymentHint(line) {
 }
 
 function cleanName(text) {
-  let name = text.replace(/^[ 　*※・:：¥\-−]+|[ 　*※・:：¥\-−]+$/g, '');
+  let name = text.replace(/^[ 　*※・:：¥\-−()]+|[ 　*※・:：¥\-−(]+$/g, '');
   name = name.replace(/\s{2,}/g, ' ').replace(/^\d{3,}\s*/, '')
     .replace(/\s*\d+\s*(点|コ|個)?\s*[@×xX]\s*単?\d[\d,]*$/, '').replace(/\s*\d+\s*点\s*$/, '').replace(/\s*(軽|内|外|非)$/, '');
   return redact(name).trim();
@@ -120,6 +135,33 @@ function quantity(line) {
     if (m && +m[1] >= 1 && +m[1] <= 999) return +m[1];
   }
   return null;
+}
+
+/** 「2コ×単98」「@258×3」のような、数量と単価の書き方 */
+function unitPrice(line) {
+  const price = '(\\d{1,3}(?:,\\d{3})+|\\d+)';
+  const first = line.match(new RegExp(`(?<![\\d,])(\\d{1,3}) *(コ|個|点|本|枚|冊|袋|ヶ|ケ|二|ニ)? *[×xX✕*] *(単価?|@)? *¥? *${price}(?![\\d,])`));
+  if (first && (first[2] || first[3])) return { quantity: Number(first[1]), unit: Number(first[4].replace(/,/g, '')), match: first };
+  const second = line.match(new RegExp(`(?:@|単価?) *¥? *${price} *[×xX✕*] *(\\d{1,3}) *(?:コ|個|点|本|枚|冊|袋|ヶ|ケ)?(?![\\d,])`));
+  return second ? { quantity: Number(second[2]), unit: Number(second[1].replace(/,/g, '')), match: second } : null;
+}
+
+const LABELS = [...TOTAL, '小計', '税', '値引', '割引', 'クーポン', 'お預', 'お釣', '釣銭'];
+/** 金額だけの行 */
+function amountOnly(line, today) {
+  const found = amounts(line);
+  return found.length === 1 && !findDay(line, today) && (line.slice(0, found[0].start) + line.slice(found[0].end)).replace(/[ ¥円()*※軽内外非-]/g, '') === '';
+}
+const bareLabel = (line, today) => !amounts(line).length && !findDay(line, today) && has(line, LABELS) && !isCode(line);
+
+/** 見出し（合計・税・値引き）と金額が上下の2行に分かれたものを、1行にまとめる */
+function joinLabels(lines, today) {
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i], next = lines[i + 1];
+    if (next !== undefined && bareLabel(line, today) && amountOnly(next, today)) { out.push(`${line}  ${next}`); i += 1; } else out.push(line);
+  }
+  return out;
 }
 
 /** 数量・単価・金額の表記だけで、商品名ではない */
@@ -157,9 +199,12 @@ export function parseDocument(rawLines, today) {
   }
 
   let pending = null;
+  let waiting = null; // 先に読んだ数量と単価（金額は次の行）
   let summary = false;
   const totals = [];
-  lines.forEach((line, index) => {
+  // 「数量」の列がある表では、名前の後ろの数字が数量
+  const countColumn = lines.some((l) => l.includes('数量') && l.includes('金額'));
+  joinLabels(lines, today).forEach((line, index) => {
     const found = amounts(line);
     const date = findDay(line, today);
     if (!result.day && date && !date.assumed) result.day = date.day;
@@ -167,17 +212,35 @@ export function parseDocument(rawLines, today) {
     const hint = paymentHint(line);
     if (hint && (!result.payment || result.payment === 'cash')) result.payment = hint;
     if (date) { pending = null; return; }
-    if (!result.storeName && index < 4 && !found.length && !has(line, ['領収', 'レシート', '明細', '御中', '注文', 'ありがとう', 'TEL', '電話', '登録番号']) && line.length >= 2) {
+    if (!result.storeName && index < 4 && !found.length && !has(line, ['領収', 'レシート', '明細', '御中', '注文', 'ありがとう', 'TEL', '電話', '登録番号']) && !isCode(line) && line.length >= 2) {
       result.storeName = cleanName(line);
       return;
     }
+    if (isCode(line)) return;
     if (has(line, INFO) && !has(line, TOTAL) || /レジ(?!袋)/.test(line)) { pending = null; return; }
+    const unit = unitPrice(line);
+    if (unit && !summary && unit.quantity >= 1) {
+      const rest = (line.slice(0, unit.match.index) + ' ' + line.slice(unit.match.index + unit.match[0].length)).replace(/[()]/g, ' ').trim();
+      const value = amounts(rest).at(-1);
+      if (value) {
+        const own = cleanName(rest.slice(0, amounts(rest)[0].start));
+        const name = !own || onlyQuantity(own) ? pending ?? '' : own;
+        if (name && value.value > 0) result.items.push({ name, quantity: unit.quantity, unitPrice: unit.unit, amount: value.value, discount: 0, isReducedRate: line.includes('※') || line.includes('軽') });
+        pending = null;
+      } else {
+        const last = result.items.at(-1);
+        // 直前の商品の内訳（金額が 数量×単価 と同じ）か、次の行の金額の内訳
+        if (!pending && last && last.unitPrice == null && last.amount === unit.quantity * unit.unit) Object.assign(last, { quantity: unit.quantity, unitPrice: unit.unit });
+        else { waiting = unit; const own = cleanName(rest); if (own && !onlyQuantity(own)) pending = own; }
+      }
+      return;
+    }
     // 「数量 25.50L 単価 178」のような内訳の行は、商品にしない（直前の商品名は残す）
     if (line.includes('単価') && !found.some((a) => line.slice(a.start, a.end).match(/¥|円/))) return;
     const amount = found.at(-1);
     if (!amount) {
       // 数量と単価だけの行は、直前の商品名を残す
-      if (!summary && !has(line, [...SKIP, ...TOTAL, '小計', '税', '領収', '支払']) && line.length >= 2 && !onlyQuantity(cleanName(line))) pending = cleanName(line);
+      if (!summary && !has(line, [...SKIP, ...TOTAL, ...DISCOUNT, '小計', '税', '領収', '支払', 'ポイント']) && line.length >= 2 && !onlyQuantity(cleanName(line))) pending = cleanName(line);
       return;
     }
     const name = cleanName(line.slice(0, found[0].start));
@@ -196,21 +259,30 @@ export function parseDocument(rawLines, today) {
     } else if (has(line, TOTAL) && !has(line, ['点数'])) {
       totals.push({ priority: has(line, ['合計', '請求']) ? 2 : 1, value: amount.value });
       summary = true;
-    } else if (has(line, SKIP) || paymentHint(line) || has(line, ['支払'])) {
+    } else if (has(line, SKIP) || paymentHint(line) || has(line, ['支払', 'ポイント'])) {
       summary = true;
     } else if (!summary) {
-      const itemName = !name || onlyQuantity(name) ? pending ?? '' : name;
+      let itemName = !name || onlyQuantity(name) ? pending ?? '' : name;
+      let count = waiting?.quantity ?? quantity(line);
+      // 名前と数量がつながって読めることがあるので、金額が割り切れる1桁なら数量とみなす
+      const column = countColumn ? itemName.match(/^(.*[^\d ])(?: +(\d{1,2})| ?([1-9]))$/) : null;
+      const quantityText = column ? Number(column[2] ?? column[3]) : 0;
+      if (column && (column[2] || amount.value % quantityText === 0)) { itemName = column[1]; count = quantityText; }
       if (itemName && amount.value > 0) {
-        result.items.push({ name: itemName, quantity: quantity(line), amount: amount.value, discount: 0, isReducedRate: line.includes('※') || line.includes('軽') });
+        result.items.push({ name: itemName, quantity: count, unitPrice: waiting?.unit ?? null, amount: amount.value, discount: 0, isReducedRate: line.includes('※') || line.includes('軽') });
       }
     }
     pending = null;
+    waiting = null;
   });
   const best = Math.max(0, ...totals.map((t) => t.priority));
   result.total = totals.filter((t) => t.priority === best).at(-1)?.value ?? null;
-  if (result.addedTax > 0 && result.total != null) {
-    const base = (result.subtotal ?? result.items.reduce((s, i) => s + i.amount - i.discount, 0)) - result.discount;
-    if (result.total === base) { result.includedTax += result.addedTax; result.addedTax = 0; }
+  if (result.total != null) {
+    const sum = result.items.reduce((s, i) => s + i.amount - i.discount, 0) - result.discount;
+    const base = result.subtotal != null ? result.subtotal - result.discount : sum;
+    if (result.addedTax > 0 && result.total === base) { result.includedTax += result.addedTax; result.addedTax = 0; }
+    // 「消費税」とだけ書かれた外税：商品の合計に足すと支払合計になる
+    else if (!result.addedTax && result.includedTax > 0 && result.items.length && result.total === sum + result.includedTax) { result.addedTax = result.includedTax; result.includedTax = 0; }
   }
   if (has(lines.join(''), ['検針', 'ご使用量', '使用量', 'ご利用料金', '請求書', 'ご請求']) && result.items.length <= 1) {
     result.kind = 'bill';

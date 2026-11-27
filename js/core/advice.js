@@ -1,7 +1,7 @@
 // 見直し候補と改善提案。記録と設定からの計算だけで、AIの推測は使わない。
 // 「不要」と断定せず、理由と金額を示して、利用者が判断する。削減できる額が分からないものは null。
 import { addDays, addMonths, daysBetween, monthOf, monthTitle } from './date.js';
-import { live, find, inPeriod, categoryName } from './ledger.js';
+import { live, find, inPeriod, categoryName, isUnknownCategory } from './ledger.js';
 import { periodRange, monthContaining, balance, bills } from './finance.js';
 import { occurrences, status, unpaid, CYCLE_MONTHS, INSURANCE } from './schedule.js';
 import { outlook } from './payroll.js';
@@ -156,7 +156,8 @@ function allFindings(data, today, scope) {
   const range = periodRange(last, data);
   const compared = previous.map((m) => periodRange(m, data)).filter((r) => inPeriod(data, r, scope).some((t) => t.kind === 'expense'));
   if (compared.length >= 2) {
-    for (const category of live(data.categories).filter((c) => c.kind === 'expense' && !c.isGroup)) {
+    for (const category of live(data.categories).filter((c) => c.kind === 'expense' && !c.isGroup && !isUnknownCategory(data, c.id))) {
+      // 不明金の増加は、軍議の「不明金」で知らせる
       const now = spent(data, range, scope, category.id);
       const average = Math.round(compared.reduce((s, r) => s + spent(data, r, scope, category.id), 0) / compared.length);
       if (average <= 0 || now - average < 3000 || now < average * 1.3) continue;

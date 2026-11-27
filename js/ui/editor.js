@@ -8,6 +8,8 @@ import { categoryPicker } from './picker.js';
 import { openImport, openReceipt } from './import.js';
 import { transferEditor, cardPaymentEditor } from './assets.js';
 import { refundEditor } from './refund.js';
+import { overlapField, unknownActions } from './unknown.js';
+import { offset, isUnknown } from '../core/unknown.js';
 
 export function openEditor(app, { kind = 'expense', entry = null } = {}) {
   const data = () => app.store.data;
@@ -47,13 +49,19 @@ export function openEditor(app, { kind = 'expense', entry = null } = {}) {
     }
     const store = h('input', { type: 'text', value: state.storeName ?? '', 'aria-label': '店舗名・入金元' });
     const memo = h('input', { type: 'text', value: state.memo ?? '', 'aria-label': 'メモ' });
-    const save = button('保存', async () => {
+    const current = () => {
       const [prefix, id] = source.value.split(':');
-      const draft = { ...state, day: day.value, amount: parseAmount(amount.value).value, accountID: prefix === 'account' ? id : null,
+      return { ...state, day: day.value, amount: parseAmount(amount.value).value, accountID: prefix === 'account' ? id : null,
         cardID: prefix === 'card' ? id : null, storeName: store.value, memo: memo.value };
+    };
+    // 新しい記録が不明金に含まれていそうなときだけ、注意を出す
+    const covered = overlapField(app, () => (entry ? [] : [current()]));
+    source.addEventListener('change', () => covered.update());
+    const save = button('保存', async () => {
+      const draft = current();
       try {
         if (entry) await app.store.updateTransaction(entry.id, draft);
-        else await app.store.addTransaction(draft);
+        else await app.store.addTransaction(draft, covered.checked() ? { alongside: offset } : {});
         app.month = monthContaining(draft.day, data());
         if (app.scope !== 'all' && app.scope !== draft.scope) app.setScope(draft.scope);
         close();
@@ -66,6 +74,7 @@ export function openEditor(app, { kind = 'expense', entry = null } = {}) {
       categoryButton.textContent = state.categoryID ? L.categoryPath(data(), state.categoryID) : '項目を選んでください ›';
       save.disabled = !(parsed.value && state.categoryID && isDay(day.value));
       message.textContent = '';
+      covered.update();
     }
     drawSources();
     refresh();
@@ -76,10 +85,11 @@ export function openEditor(app, { kind = 'expense', entry = null } = {}) {
       entry ? null : button('レシート・明細を読み取って入力', () => { close(); openImport(app); }, 'outline wide', { id: 'open-import' }),
       receipt ? button('📎 レシートを表示', () => openReceipt(app, receipt.id), 'outline wide', { id: 'show-receipt' }) : null,
       refunded ? note(`返金の記録 ${yen(refunded)}`, 'note warn') : null,
+      entry && !refunded && isUnknown(data(), entry) ? unknownActions(app, entry, close) : null,
       entry?.kind === 'expense' && refunded < entry.amount ? button('返金・取消を記録', () => { close(); refundEditor(app, entry); }, 'outline wide', { id: 'add-refund' }) : null,
       refunded ? null : field('種類', kindSelect), field('日付', day), field('金額（円）', amount), preview,
       h('div', { className: 'field' }, h('span', {}, '項目'), categoryButton),
-      field('区分', scope), field('支払い方法・入金先', source), field('店舗名・入金元', store), field('メモ', memo), message,
+      field('区分', scope), field('支払い方法・入金先', source), field('店舗名・入金元', store), field('メモ', memo), covered.element, message,
       h('div', { className: 'actions' },
         entry ? button('削除', () => remove(app, entry, close), 'danger', { id: 'delete' }) : null,
         button('キャンセル', close), save));

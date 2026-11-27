@@ -111,6 +111,7 @@ summary { cursor:pointer; color:var(--gold-light); min-height:36px; padding-top:
 .line-sub { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:5px; } .line-sub small { color:var(--aqua); font-size:13px; }
 .chip-button { background:var(--field); border:1px solid rgba(224,188,102,.6); border-radius:999px; padding:0 12px; min-height:34px; font-weight:600; font-size:14px; }
 .chip-button.missing { border:2px solid var(--net); color:var(--net); }
+.check[hidden] { display:none; }
 .check { display:flex; gap:8px; align-items:center; min-height:40px; } .check input { width:22px; height:22px; min-height:0; flex:0 0 auto; } .check span { flex:1; min-width:0; }
 .camera video { display:block; width:100%; max-height:54dvh; background:#000; border-radius:12px; }
 .shots { display:flex; gap:6px; overflow-x:auto; margin-top:6px; } .shots img { height:70px; border:1px solid var(--gold); border-radius:6px; }
